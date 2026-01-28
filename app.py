@@ -543,7 +543,7 @@ elif page == "📈 Data Exploration":
         st.dataframe(stock_df.head(10), use_container_width=True)
         
         # Interactive chart
-        st.plotly_chart(create_stock_price_chart(stock_df), use_container_width=True)
+        st.plotly_chart(create_stock_price_chart(stock_df), use_container_width=True, key="full_stock_chart")
         
         # Date range selector
         st.markdown("#### 📅 Select Date Range for Detailed View")
@@ -558,7 +558,7 @@ elif page == "📈 Data Exploration":
         filtered_df = stock_df[mask]
         
         if len(filtered_df) > 0:
-            st.plotly_chart(create_stock_price_chart(filtered_df), use_container_width=True)
+            st.plotly_chart(create_stock_price_chart(filtered_df), use_container_width=True, key="filtered_stock_chart")
         
     with tab2:
         st.markdown("### Tweet Samples")
@@ -570,7 +570,7 @@ elif page == "📈 Data Exploration":
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.plotly_chart(create_label_distribution_chart(tweets_df), use_container_width=True)
+            st.plotly_chart(create_label_distribution_chart(tweets_df), use_container_width=True, key="label_distribution_chart")
         
         with col2:
             st.markdown("#### Tweet Statistics")
@@ -625,7 +625,7 @@ elif page == "📈 Data Exploration":
                     color=['Down ⬇️', 'Up ⬆️'],
                     color_discrete_map={'Down ⬇️': '#dc3545', 'Up ⬆️': '#28a745'}
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="label_counts_bar_chart")
     
     with tab4:
         st.markdown("### Feature Correlations")
@@ -633,7 +633,7 @@ elif page == "📈 Data Exploration":
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.plotly_chart(create_correlation_heatmap(stock_df), use_container_width=True)
+            st.plotly_chart(create_correlation_heatmap(stock_df), use_container_width=True, key="correlation_heatmap")
         
         with col2:
             st.markdown("#### Correlation Insights")
@@ -721,7 +721,7 @@ elif page == "🤖 Model Performance":
         st.markdown("### 📊 Training History")
         fig = create_training_history_chart(training_history)
         if fig:
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="training_history_chart")
         
         # Display epochs info
         st.markdown("#### Training Details")
@@ -784,7 +784,7 @@ elif page == "🤖 Model Performance":
         color_discrete_sequence=px.colors.qualitative.Set2
     )
     fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="model_performance_comparison")
     
     st.markdown("---")
     
@@ -985,7 +985,7 @@ elif page == "🔮 Live Prediction":
                             }
                         ))
                         fig.update_layout(height=250)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True, key="prediction_confidence_gauge")
                     
                     # Disclaimer
                     st.markdown("---")
