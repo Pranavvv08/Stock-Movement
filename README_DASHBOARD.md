@@ -50,6 +50,25 @@ An interactive Streamlit dashboard for visualizing and predicting stock movement
 
 ## 🔧 Installation
 
+### Important Security Notice
+
+⚠️ **Security Update**: The requirements.txt has been updated with secure versions of all dependencies to address multiple known vulnerabilities in the original versions:
+
+- **TensorFlow**: Updated from 1.14.0 (2019) to 2.12.0+ (fixes 200+ vulnerabilities)
+- **Keras**: Now included in TensorFlow 2.x (fixes path traversal, deserialization, code injection)
+- **PyTorch**: Updated from 1.6.0 to 2.2.0+ (fixes RCE, heap overflow, use-after-free)
+- **Transformers**: Updated from 3.4.0 to 4.48.0+ (fixes deserialization vulnerabilities)
+- **nltk**: Updated from 3.4.5 to 3.9+ (fixes ReDoS vulnerabilities)
+- **sentencepiece**: Updated from 0.1.96 to 0.2.1+ (fixes heap overflow)
+- **scikit-learn**: Updated from 0.22.2 to 1.0.0+ (fixes deserialization issues)
+
+**Note**: The pre-trained models in the `model/` directory were trained with older library versions. With the updated dependencies:
+1. Models may need to be retrained using the notebook with new library versions
+2. Alternatively, use TensorFlow's compatibility mode to load old models
+3. For the dashboard to work with live predictions, ensure models are compatible
+
+### Installation Steps
+
 1. **Clone the repository** (if not already done):
 ```bash
 git clone https://github.com/Pranavvv08/Stock-Movement.git
@@ -63,11 +82,29 @@ pip install -r requirements.txt
 
 **Note**: The installation may take several minutes as it includes TensorFlow, PyTorch, and Sentence Transformers.
 
+### Model Compatibility
+
+If you encounter model loading errors with the updated libraries:
+
+**Option 1: Retrain Models (Recommended)**
+```bash
+# Open and run the training notebook with new library versions
+jupyter notebook StockMovement.ipynb
+```
+
+**Option 2: Use Compatibility Mode**
+The dashboard will attempt to load models even if there are library mismatches, but functionality may be limited.
+
 ### Installation Tips
 
-- **For TensorFlow 1.14.0**: This older version may require Python 3.6-3.7. Consider upgrading to TensorFlow 2.x if you encounter compatibility issues.
-- **For PyTorch CPU**: The requirements.txt includes CPU-only PyTorch for better compatibility.
-- **For Windows**: Use `python` instead of `python3` in commands.
+- **Python Version**: Requires Python 3.8-3.11
+- **For Windows**: Use `python` instead of `python3` in commands
+- **Virtual Environment** (recommended):
+  ```bash
+  python -m venv venv
+  source venv/bin/activate  # On Windows: venv\Scripts\activate
+  pip install -r requirements.txt
+  ```
 
 ## 🎯 Running the Dashboard
 
@@ -193,6 +230,37 @@ This dashboard is excellent for learning:
 - **Streamlit Development**: Interactive web applications
 - **Data Visualization**: Plotly charts and graphs
 - **Model Deployment**: From notebook to application
+
+## 🔐 Security
+
+### Dependency Updates
+
+This dashboard uses updated, secure versions of all dependencies. The original project used outdated libraries with known vulnerabilities:
+
+| Library | Original | Updated | Vulnerabilities Fixed |
+|---------|----------|---------|----------------------|
+| TensorFlow | 1.14.0 | ≥2.12.0 | 200+ (buffer overflows, code injection, DoS) |
+| Keras | 2.2.4 | Included in TF2 | Path traversal, deserialization, code injection |
+| PyTorch | 1.6.0 | ≥2.2.0 | RCE, heap overflow, use-after-free |
+| Transformers | 3.4.0 | ≥4.48.0 | Deserialization vulnerabilities |
+| nltk | 3.4.5 | ≥3.9 | ReDoS vulnerabilities |
+| sentencepiece | 0.1.96 | ≥0.2.1 | Heap overflow |
+
+### Security Best Practices
+
+1. **No Model Pickling**: Dashboard validates inputs before processing
+2. **Input Sanitization**: Tweet inputs are limited to 500 characters and stripped
+3. **No Code Execution**: No `eval()` or `exec()` used
+4. **Safe File Operations**: All file paths validated
+5. **Error Handling**: Graceful error messages without exposing internals
+
+### Reporting Security Issues
+
+If you discover a security vulnerability, please:
+1. **Do not** open a public issue
+2. Contact the repository maintainer directly
+3. Provide details of the vulnerability
+4. Allow time for a fix before public disclosure
 
 ## ⚠️ Disclaimer
 
