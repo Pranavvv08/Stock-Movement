@@ -12,18 +12,16 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
 import pickle
-from datetime import datetime
 
 # Try to import ML libraries
 try:
     from sentence_transformers import SentenceTransformer
     from keras.models import load_model
     from sklearn.preprocessing import MinMaxScaler
-    from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
     ML_AVAILABLE = True
 except ImportError as e:
     ML_AVAILABLE = False
-    st.warning(f"Some ML libraries are not available: {e}")
+    ML_IMPORT_ERROR = str(e)
 
 # Page configuration
 st.set_page_config(
@@ -80,6 +78,13 @@ st.markdown("""
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(BASE_DIR, "Dataset")
 MODEL_DIR = os.path.join(BASE_DIR, "model")
+
+# Model input shape constants - these are specific to the trained models
+# Features are reshaped to (batch_size, time_steps=35, features=22)
+# The first 2 features from BERT embeddings are skipped
+FEATURE_SKIP = 2  # Skip first 2 features after normalization
+TIME_STEPS = 35
+FEATURES_PER_STEP = 22
 
 # Cache data loading
 @st.cache_data
@@ -186,8 +191,9 @@ def create_stock_price_chart(df):
     )
     
     # Volume
-    if 'Volume' in df.columns:
-        colors = ['green' if df.iloc[i]['Label'] == 1 else 'red' for i in range(len(df))]
+    if 'Volume' in df.columns and 'Label' in df.columns:
+        # Use vectorized operation for better performance
+        colors = df['Label'].map({1: 'green', 0: 'red'}).tolist()
         fig.add_trace(
             go.Bar(x=df['Date'], y=df['Volume'], name='Volume', marker_color=colors, opacity=0.5),
             row=2, col=1
@@ -313,6 +319,16 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model)
         return None, None
     
     try:
+        # Input validation
+        if not tweet_text or not isinstance(tweet_text, str):
+            return None, None
+        
+        # Sanitize input - strip whitespace and limit length
+        tweet_text = tweet_text.strip()[:500]  # Max 500 characters
+        
+        if not tweet_text:  # Empty after stripping
+            return None, None
+        
         # Encode tweet
         tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
         tweet_features = tweet_embedding.numpy()
@@ -328,9 +344,10 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model)
         normalized = MinMaxScaler((0, 1))
         X = normalized.fit_transform(X)
         
-        # Reshape for model
-        X = X[:, 2:X.shape[1]]
-        X = np.reshape(X, (X.shape[0], 35, 22))
+        # Reshape for model using constants
+        # Skip first FEATURE_SKIP features and reshape to (batch, TIME_STEPS, FEATURES_PER_STEP)
+        X = X[:, FEATURE_SKIP:X.shape[1]]
+        X = np.reshape(X, (X.shape[0], TIME_STEPS, FEATURES_PER_STEP))
         
         # Predict
         prediction = prediction_model.predict(X)
@@ -850,21 +867,30 @@ elif page == "🔮 Live Prediction":
     
     with col1:
         st.markdown("### 💬 Tweet Input")
+        
+        # Initialize session state for sample tweet
+        if 'sample_tweet' not in st.session_state:
+            st.session_state.sample_tweet = ""
+        
         tweet_input = st.text_area(
             "Enter a tweet about Apple ($AAPL)",
+            value=st.session_state.sample_tweet,
             placeholder="Example: Apple's new iPhone is breaking sales records! $AAPL to the moon! 🚀",
-            height=100
+            height=100,
+            key="tweet_input_area"
         )
         
         # Sample tweets
         with st.expander("📝 Use Sample Tweets"):
-            if st.button("🐻 Bearish Tweet Example"):
-                tweet_input = "Apple facing supply chain issues and declining sales. Not good for $AAPL shareholders."
-                st.rerun()
-            
-            if st.button("🐂 Bullish Tweet Example"):
-                tweet_input = "Apple just announced record-breaking earnings! Strong buy signal for $AAPL 📈"
-                st.rerun()
+            col_bear, col_bull = st.columns(2)
+            with col_bear:
+                if st.button("🐻 Bearish Tweet", use_container_width=True):
+                    st.session_state.sample_tweet = "Apple facing supply chain issues and declining sales. Not good for $AAPL shareholders."
+                    st.rerun()
+            with col_bull:
+                if st.button("🐂 Bullish Tweet", use_container_width=True):
+                    st.session_state.sample_tweet = "Apple just announced record-breaking earnings! Strong buy signal for $AAPL 📈"
+                    st.rerun()
     
     with col2:
         st.markdown("### 📊 Stock Price Context")
