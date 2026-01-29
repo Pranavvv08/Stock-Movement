@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
 import pickle
+import hashlib
 
 # Try to import ML libraries
 try:
@@ -48,25 +49,25 @@ st.markdown("""
         margin-bottom: 1rem;
     }
     .metric-card {
-        background-color: #f0f2f6;
+        background-color: #305653;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #1f77b4;
     }
     .success-box {
-        background-color: #d4edda;
+        background-color: #208e31;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #28a745;
     }
     .warning-box {
-        background-color: #fff3cd;
+        background-color: #d5a73d;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #ffc107;
     }
     .info-box {
-        background-color: #d1ecf1;
+        background-color: #305653;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #17a2b8;
@@ -116,9 +117,18 @@ def load_bert_model():
     try:
         bert = SentenceTransformer('nli-distilroberta-base-v2')
         return bert
-    except Exception as e:
-        st.error(f"Error loading BERT model: {e}")
+    except Exception:
+        # BERT model couldn't be loaded (network issues, etc.)
+        # Return None silently - warnings will be shown in the UI when needed
         return None
+
+@st.cache_data
+def load_precomputed_bert_embeddings():
+    """Load pre-computed BERT embeddings from the model directory"""
+    bert_path = os.path.join(MODEL_DIR, "bert.npy")
+    if os.path.exists(bert_path):
+        return np.load(bert_path)
+    return None
 
 @st.cache_resource
 def load_prediction_models():
@@ -128,17 +138,20 @@ def load_prediction_models():
     
     models = {}
     try:
-        # Load LSTM model
-        if os.path.exists(os.path.join(MODEL_DIR, "lstm_weights.hdf5")):
-            models['LSTM'] = load_model(os.path.join(MODEL_DIR, "lstm_weights.hdf5"))
+        # Load LSTM model (using complete model file, not just weights)
+        lstm_model_path = os.path.join(MODEL_DIR, "lstm_model.h5")
+        if os.path.exists(lstm_model_path):
+            models['LSTM'] = load_model(lstm_model_path)
         
         # Load Propose model (LSTM + GRU)
-        if os.path.exists(os.path.join(MODEL_DIR, "propose_weights.hdf5")):
-            models['GRU+LSTM'] = load_model(os.path.join(MODEL_DIR, "propose_weights.hdf5"))
+        propose_model_path = os.path.join(MODEL_DIR, "propose_model.h5")
+        if os.path.exists(propose_model_path):
+            models['GRU+LSTM'] = load_model(propose_model_path)
         
         # Load Extension model (LSTM + GRU + Bidirectional)
-        if os.path.exists(os.path.join(MODEL_DIR, "extension_weights.hdf5")):
-            models['Bidirectional'] = load_model(os.path.join(MODEL_DIR, "extension_weights.hdf5"))
+        extension_model_path = os.path.join(MODEL_DIR, "extension_model.h5")
+        if os.path.exists(extension_model_path):
+            models['Bidirectional'] = load_model(extension_model_path)
         
         return models.get('LSTM'), models.get('GRU+LSTM'), models.get('Bidirectional')
     except Exception as e:
@@ -313,51 +326,103 @@ def create_training_history_chart(history_dict):
     
     return fig
 
-def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model):
-    """Make prediction for custom input"""
-    if not ML_AVAILABLE or bert_model is None or prediction_model is None:
-        return None, None
+def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model, precomputed_embeddings=None):
+    """Make prediction for custom input
+    
+    Args:
+        tweet_text: The tweet text to analyze
+        stock_data: Dictionary with Open, High, Low, Close prices
+        bert_model: SentenceTransformer model (can be None if using precomputed)
+        prediction_model: Keras model for prediction
+        precomputed_embeddings: Pre-computed BERT embeddings (optional fallback)
+    
+    Returns:
+        tuple: (predicted_class, confidence, is_demo_mode) or (None, None, False) on error
+        is_demo_mode: True if using pre-computed embeddings instead of live BERT encoding
+    """
+    if not ML_AVAILABLE or prediction_model is None:
+        return None, None, False
+    
+    is_demo_mode = False
     
     try:
-        # Input validation
+        # Input validation for tweet_text
         if not tweet_text or not isinstance(tweet_text, str):
-            return None, None
+            return None, None, False
         
         # Sanitize input - strip whitespace and limit length
         tweet_text = tweet_text.strip()[:500]  # Max 500 characters
         
         if not tweet_text:  # Empty after stripping
-            return None, None
+            return None, None, False
         
-        # Encode tweet
-        tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
-        tweet_features = tweet_embedding.numpy()
+        # Validate stock_data has required keys with numeric values
+        required_keys = ['Open', 'High', 'Low', 'Close']
+        for key in required_keys:
+            if key not in stock_data:
+                st.error(f"Missing required stock data key: {key}")
+                return None, None, False
+            try:
+                float(stock_data[key])
+            except (TypeError, ValueError):
+                st.error(f"Invalid numeric value for {key}: {stock_data[key]}")
+                return None, None, False
+        
+        # Get tweet embedding - either from BERT model or use pre-computed
+        if bert_model is not None:
+            # Live encoding with BERT model
+            tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
+            tweet_features = tweet_embedding.numpy()
+        elif precomputed_embeddings is not None:
+            # Demo mode: Use a deterministic hash to select a pre-computed embedding
+            # Note: This provides consistent predictions for the same input text,
+            # but does NOT analyze actual tweet content. For true sentiment analysis,
+            # the BERT model must be available for live encoding.
+            is_demo_mode = True
+            hash_value = int(hashlib.sha256(tweet_text.encode('utf-8')).hexdigest(), 16)
+            idx = hash_value % len(precomputed_embeddings)
+            tweet_features = precomputed_embeddings[idx:idx+1, :]
+        else:
+            st.error("No BERT model or pre-computed embeddings available")
+            return None, None, False
         
         # Prepare stock features
-        stock_features = np.array([[stock_data['Open'], stock_data['High'], 
-                                   stock_data['Low'], stock_data['Close']]])
+        stock_features = np.array([[float(stock_data['Open']), float(stock_data['High']), 
+                                   float(stock_data['Low']), float(stock_data['Close'])]])
         
-        # Merge features
+        # Merge features (768 BERT features + 4 stock features = 772)
         X = np.hstack((tweet_features, stock_features))
         
-        # Normalize
-        normalized = MinMaxScaler((0, 1))
-        X = normalized.fit_transform(X)
+        # Normalize using MinMaxScaler
+        # Note: Ideally the scaler should be fitted on training data and saved.
+        # Since no saved scaler is available, we use fit_transform on individual samples
+        # as done in the original notebook's prediction demo. This is a known limitation
+        # that may affect prediction accuracy compared to using the training data distribution.
+        scaler = MinMaxScaler((0, 1))
+        X = scaler.fit_transform(X)
         
-        # Reshape for model using constants
-        # Skip first FEATURE_SKIP features and reshape to (batch, TIME_STEPS, FEATURES_PER_STEP)
+        # Skip first FEATURE_SKIP (2) features to get 770 features
         X = X[:, FEATURE_SKIP:X.shape[1]]
-        X = np.reshape(X, (X.shape[0], TIME_STEPS, FEATURES_PER_STEP))
+
+        # Ensure correct total size (35 * 22 = 770)
+        expected_features = TIME_STEPS * FEATURES_PER_STEP
+        if X.shape[1] != expected_features:
+            raise ValueError(
+                f"Feature mismatch: expected {expected_features}, got {X.shape[1]}"
+            )
+
+        # Reshape to model input: (batch_size, 35, 22)
+        X = X.reshape(1, TIME_STEPS, FEATURES_PER_STEP)
         
         # Predict
-        prediction = prediction_model.predict(X)
+        prediction = prediction_model.predict(X, verbose=0)
         confidence = float(np.max(prediction))
         predicted_class = int(np.argmax(prediction))
         
-        return predicted_class, confidence
+        return predicted_class, confidence, is_demo_mode
     except Exception as e:
         st.error(f"Prediction error: {e}")
-        return None, None
+        return None, None, False
 
 # Sidebar Navigation
 st.sidebar.title("📊 Navigation")
@@ -852,13 +917,17 @@ elif page == "🔮 Live Prediction":
     # Load required models
     bert_model = load_bert_model()
     lstm_model, gru_lstm_model, bidirectional_model = load_prediction_models()
+    precomputed_embeddings = load_precomputed_bert_embeddings()
     
     if not ML_AVAILABLE:
         st.error("⚠️ Machine learning libraries are not available. Please install required packages.")
         st.stop()
     
-    if bert_model is None:
-        st.warning("⚠️ BERT model not loaded. Predictions may not work correctly.")
+    # Check if we have at least one way to get embeddings
+    if bert_model is None and precomputed_embeddings is None:
+        st.error("⚠️ Neither BERT model nor pre-computed embeddings available. Predictions cannot be made.")
+    elif bert_model is None:
+        st.info("ℹ️ Using demo mode with pre-computed BERT embeddings. For live encoding, ensure network access to HuggingFace.")
     
     st.markdown("---")
     
@@ -948,6 +1017,8 @@ elif page == "🔮 Live Prediction":
             st.error("⚠️ Stock data not available!")
         elif selected_model is None:
             st.error(f"⚠️ {model_name} model not loaded!")
+        elif bert_model is None and precomputed_embeddings is None:
+            st.error("⚠️ No BERT model or pre-computed embeddings available!")
         else:
             with st.spinner("🔄 Making prediction..."):
                 stock_data = {
@@ -957,13 +1028,23 @@ elif page == "🔮 Live Prediction":
                     'Close': selected_stock['Close']
                 }
                 
-                predicted_class, confidence = predict_stock_movement(
-                    tweet_input, stock_data, bert_model, selected_model
+                predicted_class, confidence, is_demo_mode = predict_stock_movement(
+                    tweet_input, stock_data, bert_model, selected_model,
+                    precomputed_embeddings=precomputed_embeddings
                 )
                 
                 if predicted_class is not None:
                     st.markdown("---")
                     st.markdown("### 📊 Prediction Result")
+                    
+                    # Demo mode warning
+                    if is_demo_mode:
+                        st.info("""
+                        🔬 **Demo Mode**: This prediction uses pre-computed embeddings and does not 
+                        analyze the actual content of your tweet. For real sentiment analysis, 
+                        the BERT model must be available for live encoding. The prediction shown 
+                        is illustrative only.
+                        """)
                     
                     # Display prediction
                     result_col1, result_col2, result_col3 = st.columns([1, 1, 1])
