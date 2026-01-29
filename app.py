@@ -326,7 +326,7 @@ def create_training_history_chart(history_dict):
     
     return fig
 
-def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model, precomputed_embeddings=None, tweets_df=None):
+def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model, precomputed_embeddings=None):
     """Make prediction for custom input
     
     Args:
@@ -335,7 +335,6 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         bert_model: SentenceTransformer model (can be None if using precomputed)
         prediction_model: Keras model for prediction
         precomputed_embeddings: Pre-computed BERT embeddings (optional fallback)
-        tweets_df: DataFrame with tweets (for demo mode matching)
     
     Returns:
         tuple: (predicted_class, confidence) or (None, None) on error
@@ -360,10 +359,11 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
             tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
             tweet_features = tweet_embedding.numpy()
         elif precomputed_embeddings is not None:
-            # Use a random pre-computed embedding for demo purposes
-            # In a real scenario, you'd need to match the tweet to existing embeddings
-            # or retrain the model with a locally-cached BERT model
-            idx = hash(tweet_text) % len(precomputed_embeddings)
+            # Use a deterministic hash to select a pre-computed embedding for demo purposes
+            # This ensures consistent predictions for the same input text
+            import hashlib
+            hash_value = int(hashlib.sha256(tweet_text.encode('utf-8')).hexdigest(), 16)
+            idx = hash_value % len(precomputed_embeddings)
             tweet_features = precomputed_embeddings[idx:idx+1, :]
         else:
             st.error("No BERT model or pre-computed embeddings available")
@@ -376,7 +376,10 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         # Merge features (768 BERT features + 4 stock features = 772)
         X = np.hstack((tweet_features, stock_features))
         
-        # Normalize
+        # Normalize using MinMaxScaler
+        # Note: Ideally the scaler should be fitted on training data and saved.
+        # Since no saved scaler is available, we use fit_transform on individual samples
+        # as done in the original notebook's prediction demo. This is a known limitation.
         scaler = MinMaxScaler((0, 1))
         X = scaler.fit_transform(X)
         
@@ -397,8 +400,6 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         prediction = prediction_model.predict(X, verbose=0)
         confidence = float(np.max(prediction))
         predicted_class = int(np.argmax(prediction))
-        
-        return predicted_class, confidence
         
         return predicted_class, confidence
     except Exception as e:
@@ -899,7 +900,6 @@ elif page == "🔮 Live Prediction":
     bert_model = load_bert_model()
     lstm_model, gru_lstm_model, bidirectional_model = load_prediction_models()
     precomputed_embeddings = load_precomputed_bert_embeddings()
-    tweets_df = load_tweets_data()
     
     if not ML_AVAILABLE:
         st.error("⚠️ Machine learning libraries are not available. Please install required packages.")
@@ -1012,8 +1012,7 @@ elif page == "🔮 Live Prediction":
                 
                 predicted_class, confidence = predict_stock_movement(
                     tweet_input, stock_data, bert_model, selected_model,
-                    precomputed_embeddings=precomputed_embeddings,
-                    tweets_df=tweets_df
+                    precomputed_embeddings=precomputed_embeddings
                 )
                 
                 if predicted_class is not None:
