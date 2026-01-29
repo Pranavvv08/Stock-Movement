@@ -48,25 +48,25 @@ st.markdown("""
         margin-bottom: 1rem;
     }
     .metric-card {
-        background-color: #f0f2f6;
+        background-color: #305653;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #1f77b4;
     }
     .success-box {
-        background-color: #d4edda;
+        background-color: #208e31;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #28a745;
     }
     .warning-box {
-        background-color: #fff3cd;
+        background-color: #d5a73d;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #ffc107;
     }
     .info-box {
-        background-color: #d1ecf1;
+        background-color: #305653;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 5px solid #17a2b8;
@@ -346,8 +346,18 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model)
         
         # Reshape for model using constants
         # Skip first FEATURE_SKIP features and reshape to (batch, TIME_STEPS, FEATURES_PER_STEP)
+        # Remove skipped features
         X = X[:, FEATURE_SKIP:X.shape[1]]
-        X = np.reshape(X, (X.shape[0], TIME_STEPS, FEATURES_PER_STEP))
+
+        # Ensure correct total size
+        expected_features = TIME_STEPS * FEATURES_PER_STEP
+        if X.shape[1] != expected_features:
+            raise ValueError(
+                f"Feature mismatch: expected {expected_features}, got {X.shape[1]}"
+            )
+
+        # Reshape to EXACT model input
+        X = X.reshape(1, TIME_STEPS, FEATURES_PER_STEP)
         
         # Predict
         prediction = prediction_model.predict(X)
