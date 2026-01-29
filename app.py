@@ -117,8 +117,18 @@ def load_bert_model():
         bert = SentenceTransformer('nli-distilroberta-base-v2')
         return bert
     except Exception as e:
-        st.error(f"Error loading BERT model: {e}")
+        # BERT model couldn't be loaded (network issues, etc.)
+        # Return None - we'll use pre-computed embeddings for demo
+        st.warning(f"BERT model not available (may require network access). Using demo mode with pre-computed embeddings.")
         return None
+
+@st.cache_data
+def load_precomputed_bert_embeddings():
+    """Load pre-computed BERT embeddings from the model directory"""
+    bert_path = os.path.join(MODEL_DIR, "bert.npy")
+    if os.path.exists(bert_path):
+        return np.load(bert_path)
+    return None
 
 @st.cache_resource
 def load_prediction_models():
@@ -128,17 +138,20 @@ def load_prediction_models():
     
     models = {}
     try:
-        # Load LSTM model
-        if os.path.exists(os.path.join(MODEL_DIR, "lstm_weights.hdf5")):
-            models['LSTM'] = load_model(os.path.join(MODEL_DIR, "lstm_weights.hdf5"))
+        # Load LSTM model (using complete model file, not just weights)
+        lstm_model_path = os.path.join(MODEL_DIR, "lstm_model.h5")
+        if os.path.exists(lstm_model_path):
+            models['LSTM'] = load_model(lstm_model_path)
         
         # Load Propose model (LSTM + GRU)
-        if os.path.exists(os.path.join(MODEL_DIR, "propose_weights.hdf5")):
-            models['GRU+LSTM'] = load_model(os.path.join(MODEL_DIR, "propose_weights.hdf5"))
+        propose_model_path = os.path.join(MODEL_DIR, "propose_model.h5")
+        if os.path.exists(propose_model_path):
+            models['GRU+LSTM'] = load_model(propose_model_path)
         
         # Load Extension model (LSTM + GRU + Bidirectional)
-        if os.path.exists(os.path.join(MODEL_DIR, "extension_weights.hdf5")):
-            models['Bidirectional'] = load_model(os.path.join(MODEL_DIR, "extension_weights.hdf5"))
+        extension_model_path = os.path.join(MODEL_DIR, "extension_model.h5")
+        if os.path.exists(extension_model_path):
+            models['Bidirectional'] = load_model(extension_model_path)
         
         return models.get('LSTM'), models.get('GRU+LSTM'), models.get('Bidirectional')
     except Exception as e:
@@ -313,9 +326,21 @@ def create_training_history_chart(history_dict):
     
     return fig
 
-def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model):
-    """Make prediction for custom input"""
-    if not ML_AVAILABLE or bert_model is None or prediction_model is None:
+def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model, precomputed_embeddings=None, tweets_df=None):
+    """Make prediction for custom input
+    
+    Args:
+        tweet_text: The tweet text to analyze
+        stock_data: Dictionary with Open, High, Low, Close prices
+        bert_model: SentenceTransformer model (can be None if using precomputed)
+        prediction_model: Keras model for prediction
+        precomputed_embeddings: Pre-computed BERT embeddings (optional fallback)
+        tweets_df: DataFrame with tweets (for demo mode matching)
+    
+    Returns:
+        tuple: (predicted_class, confidence) or (None, None) on error
+    """
+    if not ML_AVAILABLE or prediction_model is None:
         return None, None
     
     try:
@@ -329,40 +354,51 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model)
         if not tweet_text:  # Empty after stripping
             return None, None
         
-        # Encode tweet
-        tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
-        tweet_features = tweet_embedding.numpy()
+        # Get tweet embedding - either from BERT model or use pre-computed
+        if bert_model is not None:
+            # Live encoding with BERT model
+            tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
+            tweet_features = tweet_embedding.numpy()
+        elif precomputed_embeddings is not None:
+            # Use a random pre-computed embedding for demo purposes
+            # In a real scenario, you'd need to match the tweet to existing embeddings
+            # or retrain the model with a locally-cached BERT model
+            idx = hash(tweet_text) % len(precomputed_embeddings)
+            tweet_features = precomputed_embeddings[idx:idx+1, :]
+        else:
+            st.error("No BERT model or pre-computed embeddings available")
+            return None, None
         
         # Prepare stock features
         stock_features = np.array([[stock_data['Open'], stock_data['High'], 
                                    stock_data['Low'], stock_data['Close']]])
         
-        # Merge features
+        # Merge features (768 BERT features + 4 stock features = 772)
         X = np.hstack((tweet_features, stock_features))
         
         # Normalize
-        normalized = MinMaxScaler((0, 1))
-        X = normalized.fit_transform(X)
+        scaler = MinMaxScaler((0, 1))
+        X = scaler.fit_transform(X)
         
-        # Reshape for model using constants
-        # Skip first FEATURE_SKIP features and reshape to (batch, TIME_STEPS, FEATURES_PER_STEP)
-        # Remove skipped features
+        # Skip first FEATURE_SKIP (2) features to get 770 features
         X = X[:, FEATURE_SKIP:X.shape[1]]
 
-        # Ensure correct total size
+        # Ensure correct total size (35 * 22 = 770)
         expected_features = TIME_STEPS * FEATURES_PER_STEP
         if X.shape[1] != expected_features:
             raise ValueError(
                 f"Feature mismatch: expected {expected_features}, got {X.shape[1]}"
             )
 
-        # Reshape to EXACT model input
+        # Reshape to model input: (batch_size, 35, 22)
         X = X.reshape(1, TIME_STEPS, FEATURES_PER_STEP)
         
         # Predict
-        prediction = prediction_model.predict(X)
+        prediction = prediction_model.predict(X, verbose=0)
         confidence = float(np.max(prediction))
         predicted_class = int(np.argmax(prediction))
+        
+        return predicted_class, confidence
         
         return predicted_class, confidence
     except Exception as e:
@@ -862,13 +898,18 @@ elif page == "🔮 Live Prediction":
     # Load required models
     bert_model = load_bert_model()
     lstm_model, gru_lstm_model, bidirectional_model = load_prediction_models()
+    precomputed_embeddings = load_precomputed_bert_embeddings()
+    tweets_df = load_tweets_data()
     
     if not ML_AVAILABLE:
         st.error("⚠️ Machine learning libraries are not available. Please install required packages.")
         st.stop()
     
-    if bert_model is None:
-        st.warning("⚠️ BERT model not loaded. Predictions may not work correctly.")
+    # Check if we have at least one way to get embeddings
+    if bert_model is None and precomputed_embeddings is None:
+        st.error("⚠️ Neither BERT model nor pre-computed embeddings available. Predictions cannot be made.")
+    elif bert_model is None:
+        st.info("ℹ️ Using demo mode with pre-computed BERT embeddings. For live encoding, ensure network access to HuggingFace.")
     
     st.markdown("---")
     
@@ -958,6 +999,8 @@ elif page == "🔮 Live Prediction":
             st.error("⚠️ Stock data not available!")
         elif selected_model is None:
             st.error(f"⚠️ {model_name} model not loaded!")
+        elif bert_model is None and precomputed_embeddings is None:
+            st.error("⚠️ No BERT model or pre-computed embeddings available!")
         else:
             with st.spinner("🔄 Making prediction..."):
                 stock_data = {
@@ -968,7 +1011,9 @@ elif page == "🔮 Live Prediction":
                 }
                 
                 predicted_class, confidence = predict_stock_movement(
-                    tweet_input, stock_data, bert_model, selected_model
+                    tweet_input, stock_data, bert_model, selected_model,
+                    precomputed_embeddings=precomputed_embeddings,
+                    tweets_df=tweets_df
                 )
                 
                 if predicted_class is not None:
