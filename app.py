@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
 import pickle
+import hashlib
 
 # Try to import ML libraries
 try:
@@ -116,10 +117,9 @@ def load_bert_model():
     try:
         bert = SentenceTransformer('nli-distilroberta-base-v2')
         return bert
-    except Exception as e:
+    except Exception:
         # BERT model couldn't be loaded (network issues, etc.)
-        # Return None - we'll use pre-computed embeddings for demo
-        st.warning(f"BERT model not available (may require network access). Using demo mode with pre-computed embeddings.")
+        # Return None silently - warnings will be shown in the UI when needed
         return None
 
 @st.cache_data
@@ -337,21 +337,36 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         precomputed_embeddings: Pre-computed BERT embeddings (optional fallback)
     
     Returns:
-        tuple: (predicted_class, confidence) or (None, None) on error
+        tuple: (predicted_class, confidence, is_demo_mode) or (None, None, False) on error
+        is_demo_mode: True if using pre-computed embeddings instead of live BERT encoding
     """
     if not ML_AVAILABLE or prediction_model is None:
-        return None, None
+        return None, None, False
+    
+    is_demo_mode = False
     
     try:
-        # Input validation
+        # Input validation for tweet_text
         if not tweet_text or not isinstance(tweet_text, str):
-            return None, None
+            return None, None, False
         
         # Sanitize input - strip whitespace and limit length
         tweet_text = tweet_text.strip()[:500]  # Max 500 characters
         
         if not tweet_text:  # Empty after stripping
-            return None, None
+            return None, None, False
+        
+        # Validate stock_data has required keys with numeric values
+        required_keys = ['Open', 'High', 'Low', 'Close']
+        for key in required_keys:
+            if key not in stock_data:
+                st.error(f"Missing required stock data key: {key}")
+                return None, None, False
+            try:
+                float(stock_data[key])
+            except (TypeError, ValueError):
+                st.error(f"Invalid numeric value for {key}: {stock_data[key]}")
+                return None, None, False
         
         # Get tweet embedding - either from BERT model or use pre-computed
         if bert_model is not None:
@@ -359,19 +374,21 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
             tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
             tweet_features = tweet_embedding.numpy()
         elif precomputed_embeddings is not None:
-            # Use a deterministic hash to select a pre-computed embedding for demo purposes
-            # This ensures consistent predictions for the same input text
-            import hashlib
+            # Demo mode: Use a deterministic hash to select a pre-computed embedding
+            # Note: This provides consistent predictions for the same input text,
+            # but does NOT analyze actual tweet content. For true sentiment analysis,
+            # the BERT model must be available for live encoding.
+            is_demo_mode = True
             hash_value = int(hashlib.sha256(tweet_text.encode('utf-8')).hexdigest(), 16)
             idx = hash_value % len(precomputed_embeddings)
             tweet_features = precomputed_embeddings[idx:idx+1, :]
         else:
             st.error("No BERT model or pre-computed embeddings available")
-            return None, None
+            return None, None, False
         
         # Prepare stock features
-        stock_features = np.array([[stock_data['Open'], stock_data['High'], 
-                                   stock_data['Low'], stock_data['Close']]])
+        stock_features = np.array([[float(stock_data['Open']), float(stock_data['High']), 
+                                   float(stock_data['Low']), float(stock_data['Close'])]])
         
         # Merge features (768 BERT features + 4 stock features = 772)
         X = np.hstack((tweet_features, stock_features))
@@ -379,7 +396,8 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         # Normalize using MinMaxScaler
         # Note: Ideally the scaler should be fitted on training data and saved.
         # Since no saved scaler is available, we use fit_transform on individual samples
-        # as done in the original notebook's prediction demo. This is a known limitation.
+        # as done in the original notebook's prediction demo. This is a known limitation
+        # that may affect prediction accuracy compared to using the training data distribution.
         scaler = MinMaxScaler((0, 1))
         X = scaler.fit_transform(X)
         
@@ -401,10 +419,10 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         confidence = float(np.max(prediction))
         predicted_class = int(np.argmax(prediction))
         
-        return predicted_class, confidence
+        return predicted_class, confidence, is_demo_mode
     except Exception as e:
         st.error(f"Prediction error: {e}")
-        return None, None
+        return None, None, False
 
 # Sidebar Navigation
 st.sidebar.title("📊 Navigation")
@@ -1010,7 +1028,7 @@ elif page == "🔮 Live Prediction":
                     'Close': selected_stock['Close']
                 }
                 
-                predicted_class, confidence = predict_stock_movement(
+                predicted_class, confidence, is_demo_mode = predict_stock_movement(
                     tweet_input, stock_data, bert_model, selected_model,
                     precomputed_embeddings=precomputed_embeddings
                 )
@@ -1018,6 +1036,15 @@ elif page == "🔮 Live Prediction":
                 if predicted_class is not None:
                     st.markdown("---")
                     st.markdown("### 📊 Prediction Result")
+                    
+                    # Demo mode warning
+                    if is_demo_mode:
+                        st.info("""
+                        🔬 **Demo Mode**: This prediction uses pre-computed embeddings and does not 
+                        analyze the actual content of your tweet. For real sentiment analysis, 
+                        the BERT model must be available for live encoding. The prediction shown 
+                        is illustrative only.
+                        """)
                     
                     # Display prediction
                     result_col1, result_col2, result_col3 = st.columns([1, 1, 1])
