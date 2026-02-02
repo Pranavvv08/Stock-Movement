@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.data_alignment import (
     align_tweet_to_trading_day,
     validate_datasets,
-    create_labels_from_stock_movement
+    create_labels_from_stock_movement,
+    prepare_aligned_dataset
 )
 from utils.preprocessing import (
     prepare_features,
@@ -108,6 +109,33 @@ class TestDataAlignment:
         assert labels[2] == 0  # 101 < 102
         assert labels[3] == 1  # 105 > 101
         assert labels[4] == 0  # 103 < 105
+    
+    def test_prepare_aligned_dataset_duplicate_labels(self):
+        """Test that duplicate Label columns are handled correctly."""
+        # Both datasets have Label column - this mimics the actual AAPL.csv and tweets.csv
+        stock_df = pd.DataFrame({
+            'Date': pd.date_range('2020-01-01', periods=5),
+            'Open': [100, 101, 102, 103, 104],
+            'High': [105, 106, 107, 108, 109],
+            'Low': [95, 96, 97, 98, 99],
+            'Close': [102, 103, 104, 105, 106],
+            'Label': [1, 0, 1, 1, 0]
+        })
+        
+        tweets_df = pd.DataFrame({
+            'Tweets': ['Tweet 1', 'Tweet 2', 'Tweet 3', 'Tweet 4', 'Tweet 5'],
+            'Label': [1, 0, 1, 1, 0]
+        })
+        
+        # Should not create duplicate Label columns and return 1D labels
+        merged, labels, info = prepare_aligned_dataset(
+            tweets_df, stock_df, timestamp_col=None, use_existing_labels=True
+        )
+        
+        # Labels should be 1D, not 2D
+        assert labels.shape == (5,), f"Labels should have shape (5,) but got shape {labels.shape}"
+        assert labels.ndim == 1
+        assert list(labels) == [1, 0, 1, 1, 0]
 
 
 class TestPreprocessing:
