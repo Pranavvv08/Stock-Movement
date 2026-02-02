@@ -2,6 +2,42 @@
 
 An interactive Streamlit dashboard for visualizing and predicting stock movements using BERT embeddings and deep learning models (LSTM, GRU, Bidirectional).
 
+## 🔬 Technical Approach
+
+### Data Alignment Strategy
+
+This project implements a robust data alignment pipeline to ensure temporal consistency between tweets and stock prices:
+
+1. **Timestamp-to-Trading-Day Mapping**: Each tweet is aligned to its corresponding trading day
+   - If tweet timestamp falls on a trading day → use that day
+   - If tweet is on a non-trading day (weekend/holiday) → use the most recent previous trading day
+   - This ensures tweets are paired with relevant stock price data
+
+2. **Label Generation**: Stock movement labels are derived from actual price changes
+   - Label = 1 if Close[t] > Close[t-1] (price increased)
+   - Label = 0 if Close[t] ≤ Close[t-1] (price decreased or stayed same)
+
+3. **Feature Engineering**: 
+   - BERT embeddings (768 dimensions) capture tweet sentiment
+   - Stock features (Open, High, Low, Close) provide price context
+   - Combined features undergo proper normalization to prevent data leakage
+
+### Model Input Shape Strategy
+
+The models use a specific input shape strategy for compatibility:
+- Raw features: 768 (BERT) + 4 (stock) = 772 dimensions
+- After normalization: Skip first 2 features → 770 dimensions
+- Reshape to (35 time steps, 22 features per step) for LSTM/GRU input
+- This preserves compatibility with the trained model architecture
+
+### Preventing Data Leakage
+
+Key measures to ensure training/inference consistency:
+- **Scaler fitted on training data only**: MinMaxScaler parameters are computed from training set
+- **Scaler saved and reused**: The fitted scaler (model/scaler.pkl) is loaded during inference
+- **No per-sample normalization**: Test/inference data uses the training distribution
+- This ensures predictions use the same feature distribution as training
+
 ## 🚀 Features
 
 ### 1. **Home Page** 🏠
@@ -108,6 +144,41 @@ The dashboard will attempt to load models even if there are library mismatches, 
 
 ## 🎯 Running the Dashboard
 
+### Prerequisites
+
+Before running the dashboard, you must:
+
+1. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Train the models**:
+   ```bash
+   python train.py
+   ```
+   
+   This step is **required** and will:
+   - Load and align tweet data to AAPL trading days
+   - Compute BERT embeddings for tweets
+   - Train three deep learning models (LSTM, LSTM+GRU, Bidirectional)
+   - Save all models and the fitted scaler to prevent data leakage
+   - Generate performance metrics
+   
+   **Training options:**
+   - `--epochs N` - Number of training epochs (default: 50)
+   - `--batch-size N` - Batch size for training (default: 32)
+   - `--force-bert` - Force recomputation of BERT embeddings
+   
+   Example:
+   ```bash
+   python train.py --epochs 30 --batch-size 64
+   ```
+
+### Running the Dashboard
+
+Once training is complete, launch the dashboard:
+
 ### Option 1: Using the batch file (Windows)
 ```bash
 run_dashboard.bat
@@ -127,18 +198,32 @@ The dashboard will automatically open in your default web browser at `http://loc
 
 ## 📊 Data Files Required
 
-The dashboard expects the following files in the `Dataset/` directory:
+The dashboard expects the following files:
+
+### Dataset Files (in `Dataset/` directory):
 - `AAPL.csv` - Apple stock historical data with columns: Date, Open, High, Low, Close, Adj Close, Volume, Label
 - `tweets.csv` - Financial tweets with columns: Tweets, Label
 
-The following files should be in the `model/` directory:
-- `bert.npy` - Pre-computed BERT embeddings (optional, will be generated if missing)
-- `lstm_weights.hdf5` - LSTM model weights
-- `propose_weights.hdf5` - LSTM+GRU model weights
-- `extension_weights.hdf5` - Bidirectional LSTM+GRU model weights
+### Model Files (in `model/` directory):
+
+**Important:** Before running the dashboard, you must train the models first using the training pipeline:
+
+```bash
+python train.py
+```
+
+This will generate all required model files:
+- `bert.npy` - Pre-computed BERT embeddings (768-dimensional vectors)
+- `scaler.pkl` - Fitted MinMaxScaler for feature normalization (prevents data leakage)
+- `lstm_model.h5` - LSTM baseline model
 - `lstm_history.pckl` - LSTM training history
+- `propose_model.h5` - LSTM+GRU hybrid model
 - `propose_history.pckl` - LSTM+GRU training history
+- `extension_model.h5` - Bidirectional LSTM+GRU model
 - `extension_history.pckl` - Bidirectional training history
+- `metrics.json` - Performance metrics for all models
+
+**Note:** The scaler.pkl file is critical for accurate predictions. It contains the normalization parameters fitted on the training data only, ensuring consistency between training and inference without data leakage.
 
 ## 🎨 Dashboard Pages
 
