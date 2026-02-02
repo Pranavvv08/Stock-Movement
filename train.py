@@ -317,15 +317,17 @@ def train_model(model, model_name, X_train, y_train, X_test, y_test, epochs=50, 
     # Add enhanced callbacks for the extension model
     if use_enhanced_callbacks:
         early_stopping = EarlyStopping(
-            monitor='val_loss',
+            monitor='val_accuracy',
             patience=10,
+            mode='max',
             restore_best_weights=True,
             verbose=1
         )
         reduce_lr = ReduceLROnPlateau(
-            monitor='val_loss',
+            monitor='val_accuracy',
             factor=0.5,
             patience=5,
+            mode='max',
             min_lr=1e-6,
             verbose=1
         )
