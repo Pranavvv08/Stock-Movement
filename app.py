@@ -821,15 +821,17 @@ elif page == "🤖 Model Performance":
     with col3:
         st.markdown("""
         <div class="metric-card">
-        <h4>3️⃣ Bidirectional Model</h4>
+        <h4>3️⃣ Bidirectional Model (Enhanced)</h4>
         <p><strong>Architecture:</strong></p>
         <ul>
-            <li>LSTM layer (100 units)</li>
-            <li>Bidirectional GRU layers</li>
-            <li>Multiple dropouts (0.2)</li>
-            <li>Dense + Output layers</li>
+            <li>Bidirectional LSTM (128 units)</li>
+            <li>Bidirectional GRU layers (96, 64 units)</li>
+            <li>Batch Normalization layers</li>
+            <li>L2 regularization</li>
+            <li>Enhanced dense layers (128, 64)</li>
+            <li>Dropouts (0.3)</li>
         </ul>
-        <p><strong>Characteristics:</strong> Processes data in both directions</p>
+        <p><strong>Characteristics:</strong> Best accuracy with advanced regularization</p>
         </div>
         """, unsafe_allow_html=True)
     
