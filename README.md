@@ -154,10 +154,14 @@ Three models are trained and compared:
    - GRU layers (80, 64 units)
    - Multiple dropouts (0.2)
 
-3. **Bidirectional (Best)**
-   - LSTM layer (100 units)
-   - Bidirectional GRU layers
-   - Multiple dropouts (0.2)
+3. **Bidirectional (Best - Enhanced)**
+   - Bidirectional LSTM layer (128 units)
+   - Bidirectional GRU layers (96, 64 units)
+   - Batch Normalization for training stability
+   - L2 regularization to prevent overfitting
+   - Enhanced dense layers (128, 64 units)
+   - Dropouts (0.3) for regularization
+   - EarlyStopping and ReduceLROnPlateau callbacks
 
 ## 🧪 Testing
 
