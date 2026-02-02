@@ -24,6 +24,13 @@ except ImportError as e:
     ML_AVAILABLE = False
     ML_IMPORT_ERROR = str(e)
 
+# Import utilities
+try:
+    from utils.preprocessing import load_scaler, prepare_single_prediction, validate_feature_shape
+    UTILS_AVAILABLE = True
+except ImportError:
+    UTILS_AVAILABLE = False
+
 # Page configuration
 st.set_page_config(
     page_title="Stock Movement Predictor 📈",
@@ -108,6 +115,22 @@ def load_tweets_data():
     except Exception as e:
         st.error(f"Error loading tweets data: {e}")
         return None
+
+@st.cache_resource
+def load_fitted_scaler():
+    """Load the fitted scaler from training."""
+    if not UTILS_AVAILABLE:
+        return None
+    
+    scaler_path = os.path.join(MODEL_DIR, "scaler.pkl")
+    if os.path.exists(scaler_path):
+        try:
+            scaler = load_scaler(scaler_path)
+            return scaler
+        except Exception as e:
+            st.warning(f"Could not load scaler: {e}")
+            return None
+    return None
 
 @st.cache_resource
 def load_bert_model():
@@ -326,7 +349,7 @@ def create_training_history_chart(history_dict):
     
     return fig
 
-def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model, precomputed_embeddings=None):
+def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model, scaler=None, precomputed_embeddings=None):
     """Make prediction for custom input
     
     Args:
@@ -334,6 +357,7 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         stock_data: Dictionary with Open, High, Low, Close prices
         bert_model: SentenceTransformer model (can be None if using precomputed)
         prediction_model: Keras model for prediction
+        scaler: Fitted MinMaxScaler from training (preferred) or None for fallback
         precomputed_embeddings: Pre-computed BERT embeddings (optional fallback)
     
     Returns:
@@ -372,7 +396,11 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         if bert_model is not None:
             # Live encoding with BERT model
             tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
-            tweet_features = tweet_embedding.numpy()
+            # Convert to numpy, handling both CPU and CUDA tensors
+            if hasattr(tweet_embedding, 'is_cuda') and tweet_embedding.is_cuda:
+                tweet_features = tweet_embedding.cpu().numpy()
+            else:
+                tweet_features = tweet_embedding.numpy()
         elif precomputed_embeddings is not None:
             # Demo mode: Use a deterministic hash to select a pre-computed embedding
             # Note: This provides consistent predictions for the same input text,
@@ -386,33 +414,42 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
             st.error("No BERT model or pre-computed embeddings available")
             return None, None, False
         
-        # Prepare stock features
-        stock_features = np.array([[float(stock_data['Open']), float(stock_data['High']), 
-                                   float(stock_data['Low']), float(stock_data['Close'])]])
-        
-        # Merge features (768 BERT features + 4 stock features = 772)
-        X = np.hstack((tweet_features, stock_features))
-        
-        # Normalize using MinMaxScaler
-        # Note: Ideally the scaler should be fitted on training data and saved.
-        # Since no saved scaler is available, we use fit_transform on individual samples
-        # as done in the original notebook's prediction demo. This is a known limitation
-        # that may affect prediction accuracy compared to using the training data distribution.
-        scaler = MinMaxScaler((0, 1))
-        X = scaler.fit_transform(X)
-        
-        # Skip first FEATURE_SKIP (2) features to get 770 features
-        X = X[:, FEATURE_SKIP:X.shape[1]]
+        # Use the utility function if available and scaler is provided
+        if UTILS_AVAILABLE and scaler is not None:
+            # Use the proper preprocessing pipeline
+            X = prepare_single_prediction(tweet_features, stock_data, scaler)
+        else:
+            # Fallback to original approach (with data leakage warning)
+            if scaler is None:
+                st.warning("⚠️ Scaler not available. Using per-sample normalization (may affect accuracy).")
+            
+            # Prepare stock features
+            stock_features_arr = np.array([[float(stock_data['Open']), float(stock_data['High']), 
+                                           float(stock_data['Low']), float(stock_data['Close'])]])
+            
+            # Merge features (768 BERT features + 4 stock features = 772)
+            X = np.hstack((tweet_features, stock_features_arr))
+            
+            # Normalize using MinMaxScaler
+            # Note: This is the fallback method with data leakage
+            if scaler is not None:
+                X = scaler.transform(X)
+            else:
+                fallback_scaler = MinMaxScaler((0, 1))
+                X = fallback_scaler.fit_transform(X)
+            
+            # Skip first FEATURE_SKIP (2) features to get 770 features
+            X = X[:, FEATURE_SKIP:X.shape[1]]
 
-        # Ensure correct total size (35 * 22 = 770)
-        expected_features = TIME_STEPS * FEATURES_PER_STEP
-        if X.shape[1] != expected_features:
-            raise ValueError(
-                f"Feature mismatch: expected {expected_features}, got {X.shape[1]}"
-            )
+            # Ensure correct total size (35 * 22 = 770)
+            expected_features = TIME_STEPS * FEATURES_PER_STEP
+            if X.shape[1] != expected_features:
+                raise ValueError(
+                    f"Feature mismatch: expected {expected_features}, got {X.shape[1]}"
+                )
 
-        # Reshape to model input: (batch_size, 35, 22)
-        X = X.reshape(1, TIME_STEPS, FEATURES_PER_STEP)
+            # Reshape to model input: (batch_size, 35, 22)
+            X = X.reshape(1, TIME_STEPS, FEATURES_PER_STEP)
         
         # Predict
         prediction = prediction_model.predict(X, verbose=0)
@@ -918,10 +955,22 @@ elif page == "🔮 Live Prediction":
     bert_model = load_bert_model()
     lstm_model, gru_lstm_model, bidirectional_model = load_prediction_models()
     precomputed_embeddings = load_precomputed_bert_embeddings()
+    fitted_scaler = load_fitted_scaler()
     
     if not ML_AVAILABLE:
         st.error("⚠️ Machine learning libraries are not available. Please install required packages.")
         st.stop()
+    
+    # Check scaler availability
+    if fitted_scaler is None:
+        st.warning("""
+        ⚠️ **Scaler not found**: The fitted scaler from training (model/scaler.pkl) is not available.
+        The app will use per-sample normalization as a fallback, which may affect prediction accuracy.
+        
+        To fix this:
+        1. Run the training pipeline: `python train.py`
+        2. This will create model/scaler.pkl along with the trained models
+        """)
     
     # Check if we have at least one way to get embeddings
     if bert_model is None and precomputed_embeddings is None:
@@ -1030,6 +1079,7 @@ elif page == "🔮 Live Prediction":
                 
                 predicted_class, confidence, is_demo_mode = predict_stock_movement(
                     tweet_input, stock_data, bert_model, selected_model,
+                    scaler=fitted_scaler,
                     precomputed_embeddings=precomputed_embeddings
                 )
                 
