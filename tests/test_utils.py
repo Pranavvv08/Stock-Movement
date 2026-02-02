@@ -133,8 +133,8 @@ class TestDataAlignment:
         )
         
         # Labels should be 1D, not 2D
-        assert labels.ndim == 1, f"Labels should be 1D but got shape {labels.shape}"
-        assert len(labels) == 5
+        assert labels.shape == (5,), f"Labels should have shape (5,) but got shape {labels.shape}"
+        assert labels.ndim == 1
         assert list(labels) == [1, 0, 1, 1, 0]
 
 
