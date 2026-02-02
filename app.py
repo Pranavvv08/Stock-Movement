@@ -396,7 +396,11 @@ def predict_stock_movement(tweet_text, stock_data, bert_model, prediction_model,
         if bert_model is not None:
             # Live encoding with BERT model
             tweet_embedding = bert_model.encode([tweet_text], convert_to_tensor=True)
-            tweet_features = tweet_embedding.cpu().numpy()
+            # Convert to numpy, handling both CPU and CUDA tensors
+            if hasattr(tweet_embedding, 'is_cuda') and tweet_embedding.is_cuda:
+                tweet_features = tweet_embedding.cpu().numpy()
+            else:
+                tweet_features = tweet_embedding.numpy()
         elif precomputed_embeddings is not None:
             # Demo mode: Use a deterministic hash to select a pre-computed embedding
             # Note: This provides consistent predictions for the same input text,

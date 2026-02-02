@@ -120,8 +120,9 @@ def test_scaler_persistence():
     X = np.random.randn(100, 772)
     scaler.fit(X)
     
-    # Save to temp file
-    temp_file = tempfile.mktemp(suffix=".pkl")
+    # Save to temp file (using secure temporary file creation)
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as tmp:
+        temp_file = tmp.name
     
     try:
         save_scaler(scaler, temp_file)
