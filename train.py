@@ -383,11 +383,11 @@ def main():
     
     # Train LSTM + GRU
     lstm_gru_model = build_lstm_gru_model(input_shape)
-    _, propose_metrics = train_model(
+    _, lstm_gru_metrics = train_model(
         lstm_gru_model, "propose", X_train, y_train, X_test, y_test,
         epochs=args.epochs, batch_size=args.batch_size
     )
-    all_metrics['propose'] = propose_metrics
+    all_metrics['propose'] = lstm_gru_metrics
     
     # Train Bidirectional
     bidirectional_model = build_bidirectional_model(input_shape)
