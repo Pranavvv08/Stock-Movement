@@ -28,9 +28,8 @@ try:
     from sklearn.model_selection import train_test_split
     from sentence_transformers import SentenceTransformer
     from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Input, LSTM, GRU, Dense, Dropout, Bidirectional, BatchNormalization
-    from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
-    from tensorflow.keras.regularizers import l2
+    from tensorflow.keras.layers import Input, LSTM, GRU, Dense, Dropout, Bidirectional
+    from tensorflow.keras.callbacks import ModelCheckpoint
     from tensorflow.keras.utils import to_categorical
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 except ImportError as e:
@@ -260,30 +259,16 @@ def build_lstm_gru_model(input_shape, num_classes=2):
 
 
 def build_bidirectional_model(input_shape, num_classes=2):
-    """Build Enhanced Bidirectional LSTM + GRU model with improved architecture."""
+    """Build Bidirectional LSTM + GRU model."""
     model = Sequential()
     model.add(Input(shape=input_shape))
-    
-    # Bidirectional LSTM layer for better temporal pattern capture
-    model.add(Bidirectional(LSTM(128, return_sequences=True, kernel_regularizer=l2(0.001))))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.3))
-    
-    # First Bidirectional GRU layer
-    model.add(Bidirectional(GRU(96, return_sequences=True, kernel_regularizer=l2(0.001))))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.3))
-    
-    # Second Bidirectional GRU layer
-    model.add(Bidirectional(GRU(64, kernel_regularizer=l2(0.001))))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.3))
-    
-    # Enhanced dense layers
-    model.add(Dense(128, activation='relu', kernel_regularizer=l2(0.001)))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.3))
-    model.add(Dense(64, activation='relu', kernel_regularizer=l2(0.001)))
+    model.add(LSTM(100, return_sequences=True))
+    model.add(Dropout(0.2))
+    model.add(Bidirectional(GRU(80, return_sequences=True)))
+    model.add(Dropout(0.2))
+    model.add(Bidirectional(GRU(64)))
+    model.add(Dropout(0.2))
+    model.add(Dense(100, activation='relu'))
     model.add(Dense(num_classes, activation='softmax'))
     
     model.compile(
@@ -295,7 +280,7 @@ def build_bidirectional_model(input_shape, num_classes=2):
     return model
 
 
-def train_model(model, model_name, X_train, y_train, X_test, y_test, epochs=50, batch_size=32, use_enhanced_callbacks=False):
+def train_model(model, model_name, X_train, y_train, X_test, y_test, epochs=50, batch_size=32):
     """Train a model with checkpointing."""
     print(f"\n{'='*80}")
     print(f"Training {model_name}")
@@ -311,36 +296,13 @@ def train_model(model, model_name, X_train, y_train, X_test, y_test, epochs=50, 
         verbose=1
     )
     
-    # Build callbacks list
-    callbacks = [checkpoint]
-    
-    # Add enhanced callbacks for the extension model
-    if use_enhanced_callbacks:
-        early_stopping = EarlyStopping(
-            monitor='val_accuracy',
-            patience=10,
-            mode='max',
-            restore_best_weights=True,
-            verbose=1
-        )
-        reduce_lr = ReduceLROnPlateau(
-            monitor='val_accuracy',
-            factor=0.5,
-            patience=5,
-            mode='max',
-            min_lr=1e-6,
-            verbose=1
-        )
-        callbacks.extend([early_stopping, reduce_lr])
-        print("  - Using enhanced callbacks (EarlyStopping, ReduceLROnPlateau)")
-    
     # Train
     history = model.fit(
         X_train, y_train,
         validation_data=(X_test, y_test),
         epochs=epochs,
         batch_size=batch_size,
-        callbacks=callbacks,
+        callbacks=[checkpoint],
         verbose=1
     )
     
@@ -427,11 +389,11 @@ def main():
     )
     all_metrics['propose'] = lstm_gru_metrics
     
-    # Train Bidirectional (Enhanced with better callbacks)
+    # Train Bidirectional
     bidirectional_model = build_bidirectional_model(input_shape)
     _, extension_metrics = train_model(
         bidirectional_model, "extension", X_train, y_train, X_test, y_test,
-        epochs=args.epochs, batch_size=args.batch_size, use_enhanced_callbacks=True
+        epochs=args.epochs, batch_size=args.batch_size
     )
     all_metrics['extension'] = extension_metrics
     
