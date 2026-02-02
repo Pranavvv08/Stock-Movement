@@ -232,9 +232,13 @@ def prepare_aligned_dataset(tweets_df, stock_df, timestamp_col=None, use_existin
     else:
         # Index-based fallback
         min_len = min(len(tweets_df), len(stock_df))
+        # Handle duplicate column names by removing Label from stock_df if present in both
+        stock_to_concat = stock_df.iloc[:min_len].reset_index(drop=True)
+        if 'Label' in tweets_df.columns and 'Label' in stock_df.columns:
+            stock_to_concat = stock_to_concat.drop(columns=['Label'])
         merged = pd.concat([
             tweets_df.iloc[:min_len].reset_index(drop=True),
-            stock_df.iloc[:min_len].reset_index(drop=True)
+            stock_to_concat
         ], axis=1)
         alignment_info = {
             'method': 'index_based',
@@ -242,8 +246,14 @@ def prepare_aligned_dataset(tweets_df, stock_df, timestamp_col=None, use_existin
         }
     
     # Determine labels
+    # Handle case where Label column might still be duplicated (e.g., from merge)
     if use_existing_labels and 'Label' in merged.columns:
-        labels = merged['Label'].values
+        label_data = merged['Label']
+        # If Label is a DataFrame (duplicate columns), take the first column
+        if isinstance(label_data, pd.DataFrame):
+            labels = label_data.iloc[:, 0].values
+        else:
+            labels = label_data.values
         alignment_info['label_source'] = 'existing'
     else:
         # Compute labels from stock movement
