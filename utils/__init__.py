@@ -5,7 +5,7 @@ This package provides shared utilities for data alignment, preprocessing,
 and feature engineering used across training and inference pipelines.
 """
 
-from .data_alignment import align_tweet_to_trading_day, validate_datasets
+from .data_alignment import validate_datasets, align_tweets_to_stock_data, prepare_aligned_dataset
 from .preprocessing import (
     prepare_features,
     validate_feature_shape,
@@ -14,8 +14,9 @@ from .preprocessing import (
 )
 
 __all__ = [
-    'align_tweet_to_trading_day',
     'validate_datasets',
+    'align_tweets_to_stock_data',
+    'prepare_aligned_dataset',
     'prepare_features',
     'validate_feature_shape',
     'save_scaler',

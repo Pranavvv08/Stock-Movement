@@ -15,10 +15,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.data_alignment import (
-    align_tweet_to_trading_day,
     validate_datasets,
     create_labels_from_stock_movement,
-    prepare_aligned_dataset
+    prepare_aligned_dataset,
+    align_tweets_to_stock_data
 )
 from utils.preprocessing import (
     prepare_features,
@@ -33,30 +33,48 @@ from utils.preprocessing import (
 class TestDataAlignment:
     """Tests for data alignment functions."""
     
-    def test_align_tweet_to_trading_day_exact_match(self):
-        """Test alignment when tweet is on a trading day."""
-        # Create sample trading days
-        trading_days = pd.DataFrame({
-            'Date': pd.date_range('2020-01-01', periods=10, freq='D')
+    def test_index_based_alignment(self):
+        """Test that index-based alignment works correctly."""
+        # Create sample data
+        tweets_df = pd.DataFrame({
+            'Tweets': ['Tweet 1', 'Tweet 2', 'Tweet 3', 'Tweet 4', 'Tweet 5']
         })
         
-        tweet_timestamp = pd.Timestamp('2020-01-05')
-        aligned = align_tweet_to_trading_day(tweet_timestamp, trading_days)
+        stock_df = pd.DataFrame({
+            'Date': pd.date_range('2020-01-01', periods=5),
+            'Open': [100, 101, 102, 103, 104],
+            'High': [105, 106, 107, 108, 109],
+            'Low': [95, 96, 97, 98, 99],
+            'Close': [102, 103, 104, 105, 106]
+        })
         
-        assert aligned == pd.Timestamp('2020-01-05')
+        aligned_tweets, aligned_stock, info = align_tweets_to_stock_data(tweets_df, stock_df)
+        
+        assert info['method'] == 'index_based'
+        assert info['aligned_count'] == 5
+        assert len(aligned_tweets) == 5
+        assert len(aligned_stock) == 5
     
-    def test_align_tweet_to_trading_day_weekend(self):
-        """Test alignment when tweet is on a non-trading day."""
-        # Trading days (weekdays only)
-        trading_days = pd.DataFrame({
-            'Date': pd.to_datetime(['2020-01-06', '2020-01-07', '2020-01-08', '2020-01-09', '2020-01-10'])
+    def test_index_based_alignment_different_lengths(self):
+        """Test alignment when datasets have different lengths."""
+        tweets_df = pd.DataFrame({
+            'Tweets': ['Tweet 1', 'Tweet 2', 'Tweet 3']
         })
         
-        # Saturday - should align to Friday
-        tweet_timestamp = pd.Timestamp('2020-01-11')
-        aligned = align_tweet_to_trading_day(tweet_timestamp, trading_days)
+        stock_df = pd.DataFrame({
+            'Date': pd.date_range('2020-01-01', periods=5),
+            'Open': [100, 101, 102, 103, 104],
+            'High': [105, 106, 107, 108, 109],
+            'Low': [95, 96, 97, 98, 99],
+            'Close': [102, 103, 104, 105, 106]
+        })
         
-        assert aligned == pd.Timestamp('2020-01-10')
+        aligned_tweets, aligned_stock, info = align_tweets_to_stock_data(tweets_df, stock_df)
+        
+        # Should truncate to minimum length
+        assert info['aligned_count'] == 3
+        assert len(aligned_tweets) == 3
+        assert len(aligned_stock) == 3
     
     def test_validate_datasets_valid(self):
         """Test validation with valid datasets."""
@@ -74,9 +92,8 @@ class TestDataAlignment:
         
         is_valid, errors = validate_datasets(stock_df, tweets_df)
         
-        # Should have warning about missing timestamp but still be valid
+        # Should be valid with no errors
         assert is_valid == True
-        assert any('WARNING' in e for e in errors)
     
     def test_validate_datasets_missing_columns(self):
         """Test validation with missing required columns."""
@@ -214,9 +231,9 @@ class TestPreprocessing:
             fit_scaler=True
         )
         
-        # Values should be in [0, 1] after normalization
-        assert X_reshaped.min() >= 0
-        assert X_reshaped.max() <= 1
+        # Values should be in [0, 1] after normalization (with small tolerance for floating point)
+        assert X_reshaped.min() >= -1e-10
+        assert X_reshaped.max() <= 1 + 1e-10
     
     def test_prepare_features_mismatched_samples(self):
         """Test error handling for mismatched sample counts."""

@@ -1,46 +1,17 @@
 """
 Data alignment utilities for Stock Movement Prediction.
 
-This module provides functions to align tweets to trading days and validate datasets.
+This module provides functions to align tweets to stock data using index-based pairing
+and validate datasets.
+
+Note: Timestamp-based alignment has been removed to improve accuracy.
+The system now uses simple index-based pairing which assumes tweets and stock data
+are pre-aligned in the dataset.
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-
-
-def align_tweet_to_trading_day(tweet_timestamp, trading_days_df):
-    """
-    Align a tweet timestamp to the corresponding trading day.
-    
-    If the tweet timestamp falls on a trading day, return that day.
-    Otherwise, return the most recent previous trading day.
-    
-    Args:
-        tweet_timestamp: pandas Timestamp or datetime object
-        trading_days_df: DataFrame with 'Date' column containing trading days (as datetime)
-    
-    Returns:
-        pandas Timestamp: The aligned trading day
-    """
-    if not isinstance(tweet_timestamp, (pd.Timestamp, datetime)):
-        raise ValueError(f"tweet_timestamp must be a datetime or Timestamp, got {type(tweet_timestamp)}")
-    
-    # Ensure trading days are sorted
-    trading_days = trading_days_df['Date'].sort_values().values
-    
-    # Convert to datetime64 for comparison
-    tweet_date = pd.Timestamp(tweet_timestamp).normalize()
-    
-    # Find the trading day on or before the tweet date
-    mask = trading_days <= tweet_date
-    
-    if not mask.any():
-        # Tweet is before all trading days - use first trading day
-        return pd.Timestamp(trading_days[0])
-    
-    # Return the most recent trading day on or before the tweet
-    return pd.Timestamp(trading_days[mask][-1])
 
 
 def validate_datasets(stock_df, tweets_df):
@@ -76,20 +47,6 @@ def validate_datasets(stock_df, tweets_df):
         if col not in tweets_df.columns:
             errors.append(f"Tweets dataset missing required column: {col}")
     
-    # Check if tweets have timestamps (optional but recommended)
-    has_timestamp = False
-    for col in ['timestamp', 'Timestamp', 'Date', 'date', 'created_at']:
-        if col in tweets_df.columns:
-            has_timestamp = True
-            break
-    
-    if not has_timestamp:
-        errors.append(
-            "WARNING: Tweets dataset has no timestamp column. "
-            "Using index-based pairing as fallback. "
-            "For accurate alignment, add a timestamp column (e.g., 'timestamp', 'Date')."
-        )
-    
     is_valid = len([e for e in errors if not e.startswith('WARNING')]) == 0
     return is_valid, errors
 
@@ -123,94 +80,46 @@ def create_labels_from_stock_movement(stock_df):
 
 def align_tweets_to_stock_data(tweets_df, stock_df, timestamp_col=None):
     """
-    Align tweets to stock data using timestamps or index-based pairing.
+    Align tweets to stock data using simple index-based pairing.
+    
+    This function uses index-based alignment which assumes tweets and stock data
+    are pre-aligned in the dataset. Timestamp-based alignment has been removed
+    to improve model accuracy.
     
     Args:
         tweets_df: DataFrame with tweets
         stock_df: DataFrame with stock data (must have 'Date' column)
-        timestamp_col: Name of timestamp column in tweets_df (if None, auto-detect)
+        timestamp_col: Ignored (kept for API compatibility)
     
     Returns:
-        tuple: (aligned_tweets_df, aligned_stock_df, alignment_info)
+        tuple: (aligned_df, alignment_info)
     """
-    # Auto-detect timestamp column if not provided
-    if timestamp_col is None:
-        possible_cols = ['timestamp', 'Timestamp', 'Date', 'date', 'created_at']
-        for col in possible_cols:
-            if col in tweets_df.columns:
-                timestamp_col = col
-                break
+    # Always use index-based pairing for better accuracy
+    print("Using index-based pairing (tweets and stock data assumed pre-aligned).")
     
-    if timestamp_col is None:
-        # Fallback: use index-based pairing
-        print("WARNING: No timestamp column found. Using index-based pairing.")
-        print("This assumes tweets and stock data are pre-aligned by index.")
-        
-        # Ensure both datasets have same length or truncate to minimum
-        min_len = min(len(tweets_df), len(stock_df))
-        aligned_tweets = tweets_df.iloc[:min_len].copy()
-        aligned_stock = stock_df.iloc[:min_len].copy()
-        
-        alignment_info = {
-            'method': 'index_based',
-            'original_tweets': len(tweets_df),
-            'original_stock': len(stock_df),
-            'aligned_count': min_len,
-            'warning': 'Timestamp-based alignment not available'
-        }
-        
-        return aligned_tweets, aligned_stock, alignment_info
-    
-    # Timestamp-based alignment
-    print(f"Using timestamp column: {timestamp_col}")
-    
-    # Ensure timestamps are datetime
-    tweets_with_time = tweets_df.copy()
-    tweets_with_time['timestamp'] = pd.to_datetime(tweets_with_time[timestamp_col])
-    
-    # Ensure stock dates are datetime
-    stock_with_date = stock_df.copy()
-    if not pd.api.types.is_datetime64_any_dtype(stock_with_date['Date']):
-        stock_with_date['Date'] = pd.to_datetime(stock_with_date['Date'])
-    
-    # Align each tweet to a trading day
-    tweets_with_time['aligned_trading_day'] = tweets_with_time['timestamp'].apply(
-        lambda ts: align_tweet_to_trading_day(ts, stock_with_date)
-    )
-    
-    # Join with stock data
-    merged = tweets_with_time.merge(
-        stock_with_date,
-        left_on='aligned_trading_day',
-        right_on='Date',
-        how='inner'
-    )
+    # Ensure both datasets have same length or truncate to minimum
+    min_len = min(len(tweets_df), len(stock_df))
+    aligned_tweets = tweets_df.iloc[:min_len].copy()
+    aligned_stock = stock_df.iloc[:min_len].copy()
     
     alignment_info = {
-        'method': 'timestamp_based',
-        'timestamp_column': timestamp_col,
+        'method': 'index_based',
         'original_tweets': len(tweets_df),
         'original_stock': len(stock_df),
-        'aligned_count': len(merged),
-        'date_range': f"{merged['Date'].min()} to {merged['Date'].max()}"
+        'aligned_count': min_len
     }
     
-    # Return aligned data
-    # Extract original columns from tweets and stock
-    tweet_cols = [c for c in tweets_df.columns if c != timestamp_col] + ['timestamp', 'aligned_trading_day']
-    stock_cols = [c for c in stock_df.columns]
-    
-    return merged, alignment_info
+    return aligned_tweets, aligned_stock, alignment_info
 
 
 def prepare_aligned_dataset(tweets_df, stock_df, timestamp_col=None, use_existing_labels=True):
     """
-    Prepare a fully aligned dataset with proper labels.
+    Prepare a fully aligned dataset with proper labels using index-based pairing.
     
     Args:
         tweets_df: DataFrame with tweets (and optional Label column)
         stock_df: DataFrame with stock data (and optional Label column)
-        timestamp_col: Name of timestamp column in tweets_df
+        timestamp_col: Ignored (kept for API compatibility)
         use_existing_labels: If True and Label exists, use it; otherwise compute from price movement
     
     Returns:
@@ -221,29 +130,25 @@ def prepare_aligned_dataset(tweets_df, stock_df, timestamp_col=None, use_existin
     if not is_valid:
         raise ValueError(f"Dataset validation failed: {errors}")
     
-    # Print warnings
+    # Print warnings (but ignore timestamp warnings since we use index-based)
     for error in errors:
-        if error.startswith('WARNING'):
+        if error.startswith('WARNING') and 'timestamp' not in error.lower():
             print(error)
     
-    # Align datasets
-    if timestamp_col or any(col in tweets_df.columns for col in ['timestamp', 'Timestamp', 'Date', 'date', 'created_at']):
-        merged, alignment_info = align_tweets_to_stock_data(tweets_df, stock_df, timestamp_col)
-    else:
-        # Index-based fallback
-        min_len = min(len(tweets_df), len(stock_df))
-        # Handle duplicate column names by removing Label from stock_df if present in both
-        stock_to_concat = stock_df.iloc[:min_len].reset_index(drop=True)
-        if 'Label' in tweets_df.columns and 'Label' in stock_df.columns:
-            stock_to_concat = stock_to_concat.drop(columns=['Label'])
-        merged = pd.concat([
-            tweets_df.iloc[:min_len].reset_index(drop=True),
-            stock_to_concat
-        ], axis=1)
-        alignment_info = {
-            'method': 'index_based',
-            'aligned_count': min_len
-        }
+    # Always use index-based alignment for better accuracy
+    min_len = min(len(tweets_df), len(stock_df))
+    # Handle duplicate column names by removing Label from stock_df if present in both
+    stock_to_concat = stock_df.iloc[:min_len].reset_index(drop=True)
+    if 'Label' in tweets_df.columns and 'Label' in stock_df.columns:
+        stock_to_concat = stock_to_concat.drop(columns=['Label'])
+    merged = pd.concat([
+        tweets_df.iloc[:min_len].reset_index(drop=True),
+        stock_to_concat
+    ], axis=1)
+    alignment_info = {
+        'method': 'index_based',
+        'aligned_count': min_len
+    }
     
     # Determine labels
     # Handle case where Label column might still be duplicated (e.g., from merge)

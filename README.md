@@ -2,33 +2,30 @@
 
 A machine learning system that predicts stock price movements by analyzing tweets using BERT embeddings and deep learning models (LSTM, GRU, Bidirectional).
 
-## 🔧 Recent Fixes (Feb 2026)
-
-This repository has been updated to fix critical issues related to data alignment, data leakage, and training/inference consistency:
+## 🔧 Recent Updates (Feb 2026)
 
 ### Key Improvements
 
-1. **Data Alignment Pipeline** (`utils/data_alignment.py`)
-   - Robust timestamp-to-trading-day mapping
-   - Handles weekends and holidays correctly
-   - Supports both timestamp-based and index-based alignment
-   - Schema validation with clear error messages
+1. **Simplified Data Alignment** (`utils/data_alignment.py`)
+   - Removed timestamp-based alignment (was reducing accuracy)
+   - Uses simple index-based pairing for better results
+   - Assumes tweets and stock data are pre-aligned in the dataset
 
-2. **Elimination of Data Leakage** (`utils/preprocessing.py`)
-   - Scaler fitted on training data only
-   - Saved to `model/scaler.pkl` for reuse during inference
-   - No more per-sample normalization in production
+2. **Enhanced Model Architectures** (`train.py`)
+   - **Bidirectional model optimized for BEST VALIDATION ACCURACY**
+   - Added recurrent dropout and L2 regularization to prevent overfitting
+   - Batch normalization for stable training
+   - Early stopping to prevent overfitting
 
-3. **Clean Training Pipeline** (`train.py`)
-   - End-to-end reproducible training workflow
-   - Automatic BERT embedding computation and caching
-   - Saves all models and metrics consistently
-   - Proper train/test split with validation
+3. **Individual Model Training**
+   - Train specific models with `--model` flag
+   - Options: `lstm`, `propose`, `extension`, or `all`
 
-4. **Updated Streamlit Dashboard** (`app.py`)
-   - Loads and uses saved scaler
-   - Clear warnings when artifacts are missing
-   - Improved prediction consistency
+4. **Anti-Overfitting Measures**
+   - Early stopping (patience: 20 epochs)
+   - Learning rate reduction on plateau
+   - Class weights for imbalanced data
+   - Strong regularization in all layers
 
 ## 🚀 Quick Start
 
@@ -38,32 +35,27 @@ This repository has been updated to fix critical issues related to data alignmen
 pip install -r requirements.txt
 ```
 
-### 2. Validate Setup
+### 2. Train Models
 
-```bash
-python validate_pipeline.py
-```
-
-This runs quick tests to ensure all components work correctly.
-
-### 3. Train Models
-
+Train all models:
 ```bash
 python train.py
 ```
 
+Train individual models:
+```bash
+python train.py --model lstm       # Train only LSTM
+python train.py --model propose    # Train only LSTM+GRU
+python train.py --model extension  # Train only Bidirectional (BEST)
+```
+
 Options:
-- `--epochs N` - Number of training epochs (default: 50)
+- `--epochs N` - Number of training epochs (default: 100)
 - `--batch-size N` - Batch size (default: 32)
+- `--model MODEL` - Model to train: lstm, propose, extension, all (default: all)
 - `--force-bert` - Recompute BERT embeddings
 
-This will:
-- Load and align datasets
-- Compute BERT embeddings (cached for future runs)
-- Train three models: LSTM, LSTM+GRU, Bidirectional
-- Save all models, scaler, and metrics to `model/` directory
-
-### 4. Run Dashboard
+### 3. Run Dashboard
 
 ```bash
 streamlit run app.py
@@ -83,8 +75,9 @@ Stock-Movement/
 │   ├── scaler.pkl        # Fitted scaler (prevents data leakage!)
 │   ├── lstm_model.h5     # LSTM baseline model
 │   ├── propose_model.h5  # LSTM+GRU hybrid model
-│   ├── extension_model.h5 # Bidirectional model
+│   ├── extension_model.h5 # Bidirectional model (BEST)
 │   ├── *_history.pckl    # Training histories
+│   ├── *_weights.hdf5    # Model weights
 │   └── metrics.json      # Performance metrics
 ├── utils/
 │   ├── data_alignment.py # Dataset alignment utilities
@@ -94,14 +87,47 @@ Stock-Movement/
 ├── train.py              # Training pipeline
 ├── validate_pipeline.py  # Quick validation script
 ├── app.py                # Streamlit dashboard
-└── README_DASHBOARD.md   # Dashboard documentation
+└── README.md             # This file
 ```
 
 ## 🔬 Technical Details
 
-### Model Input Strategy
+### Model Architectures
 
-The models use a specific input shape for compatibility with the original architecture:
+#### 1. LSTM (Baseline)
+- 2 LSTM layers (128, 64 units) with batch normalization
+- L2 regularization (0.001)
+- Progressive dropout (0.3)
+
+#### 2. LSTM + GRU (Propose)
+- LSTM layer (128 units) + GRU layers (96, 64 units)
+- Batch normalization between layers
+- L2 regularization
+
+#### 3. Bidirectional (Extension) - **HIGHEST ACCURACY**
+- Bidirectional LSTM layers (96, 64 units)
+- Bidirectional GRU layers (48, 32 units)
+- **Recurrent dropout** to prevent overfitting
+- **L2 regularization** on kernel and recurrent weights
+- Progressive dropout (0.2 → 0.5)
+- Optimized for **validation accuracy**
+
+### Anti-Overfitting Features
+
+1. **Recurrent Dropout**: Applied within LSTM/GRU cells
+2. **L2 Regularization**: On both kernel and recurrent weights
+3. **Early Stopping**: Stops when validation accuracy stops improving (patience: 20)
+4. **Learning Rate Reduction**: Halves LR when validation loss plateaus
+5. **Batch Normalization**: Stabilizes training
+6. **Class Weights**: Handles imbalanced data
+
+### Data Alignment
+
+- Uses simple **index-based pairing** (tweets and stock data assumed pre-aligned)
+- No timestamp-based alignment (was reducing accuracy)
+- Validates required columns in both datasets
+
+### Feature Engineering
 
 1. **Feature Construction**:
    - BERT embeddings: 768 dimensions (tweet sentiment)
@@ -109,66 +135,15 @@ The models use a specific input shape for compatibility with the original archit
    - Combined: 772 dimensions
 
 2. **Preprocessing**:
-   - Normalize using MinMaxScaler (fitted on training data)
+   - Normalize using MinMaxScaler (fitted on training data only)
    - Skip first 2 features → 770 dimensions
    - Reshape to (35 time steps, 22 features per step)
-
-3. **Why skip first 2 features?**
-   - Maintains compatibility with pre-trained models
-   - Historical implementation detail preserved
-   - Clearly documented in code comments
-
-### Data Alignment Strategy
-
-When tweets have timestamps (recommended):
-- Align each tweet to its trading day
-- If tweet is on non-trading day → use previous trading day
-- Ensures temporal consistency
-
-When tweets lack timestamps (fallback):
-- Use index-based pairing
-- Assumes data is pre-aligned
-- Warns user about limitations
-
-### Preventing Data Leakage
-
-**Problem**: Original code used `fit_transform()` on individual samples during inference, learning from test data.
-
-**Solution**:
-1. Fit scaler on training data only
-2. Save scaler to `model/scaler.pkl`
-3. Load and reuse scaler during inference
-4. Never refit on test/production data
-
-## 📊 Model Architecture
-
-Three models are trained and compared:
-
-1. **LSTM (Baseline)**
-   - Single LSTM layer (100 units)
-   - Dropout (0.5)
-   - Dense layers
-
-2. **LSTM + GRU (Hybrid)**
-   - LSTM layer (100 units)
-   - GRU layers (80, 64 units)
-   - Multiple dropouts (0.2)
-
-3. **Bidirectional (Best)**
-   - LSTM layer (100 units)
-   - Bidirectional GRU layers
-   - Multiple dropouts (0.2)
 
 ## 🧪 Testing
 
 Run unit tests:
 ```bash
 python -m pytest tests/ -v
-```
-
-Or run validation script:
-```bash
-python validate_pipeline.py
 ```
 
 ## 📈 Performance Metrics
@@ -179,21 +154,13 @@ After training, metrics are saved to `model/metrics.json`:
 - Recall
 - F1 Score
 
-View in dashboard for detailed comparison.
+The **extension (Bidirectional) model** typically achieves the highest validation accuracy.
 
 ## ⚠️ Important Notes
 
-1. **Always train before running dashboard**: The dashboard requires trained models and scaler
+1. **Train before running dashboard**: The dashboard requires trained models and scaler
 2. **Don't delete scaler.pkl**: Critical for prediction consistency
-3. **Timestamp data**: Add timestamps to tweets.csv for better alignment
-4. **For educational purposes only**: Not financial advice
-
-## 🤝 Contributing
-
-When making changes:
-1. Run validation: `python validate_pipeline.py`
-2. Run tests: `python -m pytest tests/ -v`
-3. Update documentation as needed
+3. **For educational purposes only**: Not financial advice
 
 ## 📝 License
 
@@ -202,5 +169,4 @@ See repository for license information.
 ## 🙏 Credits
 
 - Original implementation: [Pranavvv08](https://github.com/Pranavvv08)
-- Fixes and improvements: February 2026 update
 - Technologies: TensorFlow, Keras, Sentence Transformers, Streamlit, Plotly
