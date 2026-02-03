@@ -7,7 +7,6 @@ Run with: python -m pytest tests/test_utils.py -v
 import pytest
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
 import os
 import sys
 
@@ -28,6 +27,9 @@ from utils.preprocessing import (
     FEATURES_PER_STEP,
     EXPECTED_FEATURE_COUNT
 )
+
+# Floating point tolerance for comparison
+FLOAT_TOLERANCE = 1e-10
 
 
 class TestDataAlignment:
@@ -232,8 +234,8 @@ class TestPreprocessing:
         )
         
         # Values should be in [0, 1] after normalization (with small tolerance for floating point)
-        assert X_reshaped.min() >= -1e-10
-        assert X_reshaped.max() <= 1 + 1e-10
+        assert X_reshaped.min() >= -FLOAT_TOLERANCE
+        assert X_reshaped.max() <= 1 + FLOAT_TOLERANCE
     
     def test_prepare_features_mismatched_samples(self):
         """Test error handling for mismatched sample counts."""

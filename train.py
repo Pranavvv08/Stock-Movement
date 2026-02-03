@@ -33,8 +33,7 @@ try:
     from tensorflow.keras.models import Sequential, Model
     from tensorflow.keras.layers import (
         Input, LSTM, GRU, Dense, Dropout, Bidirectional,
-        BatchNormalization, Layer, Attention, MultiHeadAttention,
-        LayerNormalization, GlobalAveragePooling1D, Concatenate, Add
+        BatchNormalization
     )
     from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
     from tensorflow.keras.utils import to_categorical

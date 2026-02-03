@@ -11,7 +11,6 @@ are pre-aligned in the dataset.
 
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 
 
 def validate_datasets(stock_df, tweets_df):
