@@ -35,11 +35,11 @@ All models have been improved with better architectures:
 
 #### Bidirectional (Extension) Model - **HIGHEST ACCURACY**
 ```python
-- Bidirectional LSTM (96 units) with recurrent_dropout=0.2
-- Bidirectional LSTM (64 units) with recurrent_dropout=0.2
-- Bidirectional GRU (48 units) with recurrent_dropout=0.2
-- Bidirectional GRU (32 units) with recurrent_dropout=0.2
-- Dense layers (128 → 64 → 32) with progressive dropout
+- Bidirectional LSTM (96 units) with dropout=0.2, recurrent_dropout=0.2
+- Bidirectional LSTM (64 units) with dropout=0.25, recurrent_dropout=0.2
+- Bidirectional GRU (48 units) with dropout=0.3, recurrent_dropout=0.2
+- Bidirectional GRU (32 units) with dropout=0.3, recurrent_dropout=0.2
+- Dense layers (128 → 64 → 32) with dropout (0.5 → 0.4 → 0.3)
 - L2 regularization on ALL layers (kernel + recurrent weights)
 ```
 

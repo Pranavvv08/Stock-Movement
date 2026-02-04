@@ -91,7 +91,7 @@ def align_tweets_to_stock_data(tweets_df, stock_df, timestamp_col=None):
         timestamp_col: Ignored (kept for API compatibility)
     
     Returns:
-        tuple: (aligned_df, alignment_info)
+        tuple: (aligned_tweets, aligned_stock, alignment_info)
     """
     # Always use index-based pairing for better accuracy
     print("Using index-based pairing (tweets and stock data assumed pre-aligned).")

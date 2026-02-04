@@ -30,7 +30,7 @@ try:
     from sklearn.model_selection import train_test_split
     from sklearn.utils.class_weight import compute_class_weight
     from sentence_transformers import SentenceTransformer
-    from tensorflow.keras.models import Sequential, Model
+    from tensorflow.keras.models import Sequential, Model, load_model
     from tensorflow.keras.layers import (
         Input, LSTM, GRU, Dense, Dropout, Bidirectional,
         BatchNormalization
@@ -40,7 +40,6 @@ try:
     from tensorflow.keras.optimizers import Adam
     from tensorflow.keras.regularizers import l2
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
-    import tensorflow as tf
 except ImportError as e:
     print(f"Error: Required ML libraries not installed: {e}")
     print("Install with: pip install -r requirements.txt")
@@ -279,10 +278,10 @@ def build_bidirectional_model(input_shape, num_classes=2):
     
     This model is carefully designed to PREVENT OVERFITTING while maximizing validation accuracy:
     - Bidirectional layers for better context understanding from both directions
-    - Recurrent dropout to prevent overfitting in RNN layers
+    - Both dropout (on inputs) and recurrent_dropout (on recurrent connections) in RNN layers
     - Strong L2 regularization on all layers
     - Batch normalization for stable training
-    - Progressive dropout (increasing through layers)
+    - Tuned dropout rates in dense layers (0.5 → 0.4 → 0.3)
     - Moderate model capacity to avoid memorization
     """
     inputs = Input(shape=input_shape)
@@ -348,7 +347,7 @@ def build_bidirectional_model(input_shape, num_classes=2):
     
     model = Model(inputs=inputs, outputs=outputs)
     
-    # Use a moderate learning rate with decay
+    # Use a moderate initial learning rate; LR reduction is handled via ReduceLROnPlateau callback
     optimizer = Adam(learning_rate=0.001)
     model.compile(
         loss='categorical_crossentropy',
@@ -444,7 +443,6 @@ def train_model(model, model_name, X_train, y_train, X_test, y_test, epochs=100,
     print(f"  - History saved to {history_path}")
     
     # Load best model for evaluation
-    from tensorflow.keras.models import load_model
     best_model = load_model(model_path)
     
     # Evaluate
