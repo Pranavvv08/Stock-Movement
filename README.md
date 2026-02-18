@@ -2,33 +2,6 @@
 
 A machine learning system that predicts stock price movements by analyzing tweets using BERT embeddings and deep learning models (LSTM, GRU, Bidirectional).
 
-## 🔧 Recent Fixes (Feb 2026)
-
-This repository has been updated to fix critical issues related to data alignment, data leakage, and training/inference consistency:
-
-### Key Improvements
-
-1. **Data Alignment Pipeline** (`utils/data_alignment.py`)
-   - Robust timestamp-to-trading-day mapping
-   - Handles weekends and holidays correctly
-   - Supports both timestamp-based and index-based alignment
-   - Schema validation with clear error messages
-
-2. **Elimination of Data Leakage** (`utils/preprocessing.py`)
-   - Scaler fitted on training data only
-   - Saved to `model/scaler.pkl` for reuse during inference
-   - No more per-sample normalization in production
-
-3. **Clean Training Pipeline** (`train.py`)
-   - End-to-end reproducible training workflow
-   - Automatic BERT embedding computation and caching
-   - Saves all models and metrics consistently
-   - Proper train/test split with validation
-
-4. **Updated Streamlit Dashboard** (`app.py`)
-   - Loads and uses saved scaler
-   - Clear warnings when artifacts are missing
-   - Improved prediction consistency
 
 ## 🚀 Quick Start
 
